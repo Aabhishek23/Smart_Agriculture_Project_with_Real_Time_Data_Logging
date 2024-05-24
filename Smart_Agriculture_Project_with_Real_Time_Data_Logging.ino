@@ -4,6 +4,18 @@
 
 #define LED_BUILTIN 2
 
+#include <DHT.h>
+
+// Define the pin where the DHT11 data pin is connected
+#define DHTPIN 4  // GPIO4 (D4)
+
+// Define the type of DHT sensor
+#define DHTTYPE DHT11
+
+// Initialize DHT sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+
 // Wi-Fi details
 char ssid[] = "5NET";
 char pass[] = "Ttaniya@23";
@@ -27,6 +39,11 @@ const int rainSensorPin = 34; // GPIO34 corresponds to A6 on some ESP32 boards
 int lcdColumns = 16;
 int lcdRows = 2;
 
+
+ int humidity;
+ int temperature;
+
+
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
 void displayData(int value, String stringValue, int line = 0);
 
@@ -45,6 +62,8 @@ void IRAM_ATTR onTimer() {
     portENTER_CRITICAL_ISR(&timerMux);
     moistureValue = moisture_sansore();
     rainValue = rain_sensore();
+    DHT_11();
+
     updateDisplay = true;
     portEXIT_CRITICAL_ISR(&timerMux);
 }
@@ -65,6 +84,8 @@ void setup() {
     timerAttachInterrupt(timer, &onTimer, true);
     timerAlarmWrite(timer, 5000000, true);  // 5 seconds interval
     timerAlarmEnable(timer);
+
+    dht.begin();
 }
 
 void loop() {
@@ -76,6 +97,7 @@ void loop() {
         portENTER_CRITICAL(&timerMux);
         int currentMoistureValue = moistureValue;
         int currentRainValue = rainValue;
+
         updateDisplay = false;
         portEXIT_CRITICAL(&timerMux);
 
@@ -84,6 +106,16 @@ void loop() {
         delay(3000);
         displayData(currentRainValue, "Rain Level:", 0);
         delay(3000);
+        displayData(humidity," Humidity: ", 0);
+        delay(3000);
+        displayData(temperature," Temperature: ", 0);
+        delay(3000);
+
+
+
+
+
+
         // Update ThingSpeak with the new sensor values if connected to WiFi
         if (WiFi.status() == WL_CONNECTED) {
             upload(currentMoistureValue, currentRainValue);
@@ -115,6 +147,22 @@ int rain_sensore() {
     return rainPercentage;
 }
 
+
+
+
+void DHT_11() {
+  // Wait a few seconds between measurements
+  delay(2000);
+
+  // Read humidity
+  humidity = dht.readHumidity();
+  
+  // Read temperature as Celsius (the default)
+  temperature = dht.readTemperature();
+}
+
+
+
 void upload(int moistureValue, int rainValue) {
     ThingSpeak.setField(Field_Number_1, moistureValue);
     ThingSpeak.setField(Field_Number_2, rainValue);
@@ -134,6 +182,7 @@ void upload(int moistureValue, int rainValue) {
     delay(200);
 }
 
+
 void displayData(int value, String stringValue, int line) {
     lcd.clear();
     lcd.setCursor(0, line);
@@ -142,3 +191,4 @@ void displayData(int value, String stringValue, int line) {
     lcd.print(value);
     lcd.print("%");
 }
+
