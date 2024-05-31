@@ -1,10 +1,14 @@
 #include <LiquidCrystal_I2C.h>
 #include "ThingSpeak.h"
 #include <WiFi.h>
-
-#define LED_BUILTIN 2
-
 #include <DHT.h>
+#include <ESP32Servo.h>
+#include "Melody.h"
+
+// Pin definitions
+#define LED_BUILTIN 2
+#define moistureSensorPin 36
+#define rainSensorPin 34
 
 // Define the pin where the DHT11 data pin is connected
 #define DHTPIN 4  // GPIO4 (D4)
@@ -15,77 +19,77 @@
 // Initialize DHT sensor
 DHT dht(DHTPIN, DHTTYPE);
 
+// WiFi and ThingSpeak credentials
+const char ssid[] = "5NET";
+const char pass[] = "Ttaniya@23";
+const unsigned long Channel_ID = 2392583;
+const char* myWriteAPIKey = "FOCKHMNT3EXY1QUA";
 
-// Wi-Fi details
-char ssid[] = "5NET";
-char pass[] = "Ttaniya@23";
-
-// ThingSpeak details
-unsigned long Channel_ID = 2392583;
-const char* myWriteAPIKey = "I2MY5VSRJZKQ6O19";
-const char* myReadAPIKey = "JBTTO2XDE2V7ELL1";
-
-// Field numbers
 const int Field_Number_1 = 1;
-const int Field_Number_2 = 2; // Assuming you're using a second field for rain sensor
+const int Field_Number_2 = 2;
+const int Field_Number_3 = 3;  // Humidity field
+const int Field_Number_4 = 4;  // Temperature field
+
+float humidity = 0;
+// Read temperature as Celsius (the default)
+float temperature = 0;
 
 WiFiClient client;
-const int moistureSensorPin = 36;
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
 const int sensorMinValue = 0;
 const int sensorMaxValue = 4095;
-
-const int rainSensorPin = 34; // GPIO34 corresponds to A6 on some ESP32 boards
-
-int lcdColumns = 16;
-int lcdRows = 2;
-
-
- int humidity;
- int temperature;
-
-
-LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
-void displayData(int value, String stringValue, int line = 0);
-
-
-
-hw_timer_t *timer = NULL;
-portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 volatile bool updateDisplay = false;
 volatile int moistureValue = 0;
 volatile int rainValue = 0;
 
+hw_timer_t *timer = NULL;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 
+// Custom character for degree symbol
+byte degreeSymbol[8] = {
+    0b00111,
+    0b00101,
+    0b00111,
+    0b00000,
+    0b00000,
+    0b00000,
+    0b00000,
+    0b00000
+};
 
-
-void IRAM_ATTR onTimer() {
-    portENTER_CRITICAL_ISR(&timerMux);
-    moistureValue = moisture_sansore();
-    rainValue = rain_sensore();
-    DHT_11();
-
-    updateDisplay = true;
-    portEXIT_CRITICAL_ISR(&timerMux);
-}
+// Function declaration
+void IRAM_ATTR onTimer();
 
 void setup() {
     Serial.begin(115200);
+    // Initialize the DHT sensor
+    dht.begin();
     WiFi.mode(WIFI_STA);
     ThingSpeak.begin(client);
     connectToWiFi();
-
 
     pinMode(LED_BUILTIN, OUTPUT);
 
     lcd.init();
     lcd.backlight();
+    
+    // Create custom degree symbol
+    lcd.createChar(0, degreeSymbol);
 
     timer = timerBegin(0, 80, true);
     timerAttachInterrupt(timer, &onTimer, true);
     timerAlarmWrite(timer, 5000000, true);  // 5 seconds interval
     timerAlarmEnable(timer);
+}
 
-    dht.begin();
+// Timer interrupt service routine
+void IRAM_ATTR onTimer() {
+    portENTER_CRITICAL_ISR(&timerMux);
+    moistureValue = moistureSensor();
+    rainValue = rainSensor();
+    updateDisplay = true;
+    portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 void loop() {
@@ -93,32 +97,32 @@ void loop() {
         connectToWiFi();
     }
 
+    // Now read the DHT11 sensor and display its values
+    dht_11();
+
     if (updateDisplay) {
         portENTER_CRITICAL(&timerMux);
         int currentMoistureValue = moistureValue;
         int currentRainValue = rainValue;
-
         updateDisplay = false;
         portEXIT_CRITICAL(&timerMux);
 
-        // Display the new moisture value on the LCD
-        displayData(currentMoistureValue, "Soil Moisture:",0);
+        // Display the new sensor values on the LCD
+        displayData(currentMoistureValue, "Soil Moisture:", "%");
         delay(3000);
-        displayData(currentRainValue, "Rain Level:", 0);
-        delay(3000);
-        displayData(humidity," Humidity: ", 0);
-        delay(3000);
-        displayData(temperature," Temperature: ", 0);
+        displayData(currentRainValue, "Rain Level:", "%");
         delay(3000);
 
+        displayData(humidity, "Humidity:", "%");
+        delay(3000);
+        displayData(temperature, "Temperature:", (char)0);  // Use custom degree symbol
+        delay(3000);
 
-
-
-
+        lcd.clear();
 
         // Update ThingSpeak with the new sensor values if connected to WiFi
         if (WiFi.status() == WL_CONNECTED) {
-            upload(currentMoistureValue, currentRainValue);
+            upload(currentMoistureValue, currentRainValue,humidity,temperature);
         }
     }
 }
@@ -126,46 +130,36 @@ void loop() {
 void connectToWiFi() {
     Serial.print("Connecting to WiFi");
     WiFi.begin(ssid, pass);
-    while (WiFi.status() != WL_CONNECTED) {
+    int retryCount = 0;
+    while (WiFi.status() != WL_CONNECTED && retryCount < 20) {
         delay(500);
         Serial.print(".");
+        retryCount++;
     }
-    Serial.println("Connected.");
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("Connected.");
+        playInternetConnectedMelody();
+    } else {
+        Serial.println("Failed to connect to WiFi.");
+    }
 }
 
-int moisture_sansore() {
+int moistureSensor() {
     int sensorValue = analogRead(moistureSensorPin);
-    int moisturePercentage = map(sensorValue, sensorMinValue, sensorMaxValue, 100, 0);
-    return moisturePercentage;
+    return map(sensorValue, sensorMinValue, sensorMaxValue, 100, 0);
 }
 
-int rain_sensore() {
-    // Read the analog value from rain sensor connected to GPIO34 (A6)
+int rainSensor() {
     int sensorValue = analogRead(rainSensorPin);
-    // Convert the analog value to a percentage (0-100%)
-    int rainPercentage = map(sensorValue, 0, 4095, 100, 0);
-    return rainPercentage;
+    return map(sensorValue, 0, 4095, 100, 0);
 }
 
 
-
-
-void DHT_11() {
-  // Wait a few seconds between measurements
-  delay(2000);
-
-  // Read humidity
-  humidity = dht.readHumidity();
-  
-  // Read temperature as Celsius (the default)
-  temperature = dht.readTemperature();
-}
-
-
-
-void upload(int moistureValue, int rainValue) {
+void upload(int moistureValue, int rainValue,float humidity,float temperature) {
     ThingSpeak.setField(Field_Number_1, moistureValue);
     ThingSpeak.setField(Field_Number_2, rainValue);
+    ThingSpeak.setField(Field_Number_3, humidity);
+    ThingSpeak.setField(Field_Number_4, temperature);
     ThingSpeak.writeFields(Channel_ID, myWriteAPIKey);
 
     Serial.print("Soil Moisture (in Percentage) = ");
@@ -176,19 +170,55 @@ void upload(int moistureValue, int rainValue) {
     Serial.print(rainValue);
     Serial.println("%");
 
+    Serial.print("Humidity = ");
+    Serial.print(humidity);
+    Serial.println("%");
+
+    Serial.print("Temperature = ");
+    Serial.print(temperature);
+    Serial.println("°C");
+
     digitalWrite(LED_BUILTIN, LOW);
     delay(200);
     digitalWrite(LED_BUILTIN, HIGH);
     delay(200);
+
+    beep();
 }
 
-
-void displayData(int value, String stringValue, int line) {
+void displayData(float value, String label, char unit) {
     lcd.clear();
-    lcd.setCursor(0, line);
-    lcd.print(stringValue);
-    lcd.setCursor(0, line + 1);
+    lcd.setCursor(0, 0);
+    lcd.print(label);
+    lcd.setCursor(0, 1);
     lcd.print(value);
-    lcd.print("%");
+    lcd.write(unit);
 }
 
+void displayData(float value, String label, String unit) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(label);
+    lcd.setCursor(0, 1);
+    lcd.print(value);
+    lcd.print(unit);
+}
+
+void dht_11() {
+    // Read humidity
+    humidity = dht.readHumidity();
+    // Read temperature as Celsius (the default)
+    temperature = dht.readTemperature();
+    // Check if any reads failed and exit early (to try again).
+    if (isnan(humidity) || isnan(temperature)) {
+        Serial.println("Failed to read from DHT sensor!");
+        return;
+    }
+    // Print the results to the Serial Monitor
+    Serial.print("Humidity: ");
+    Serial.print(humidity);
+    Serial.print(" %\t");
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.println(" °C");
+}
