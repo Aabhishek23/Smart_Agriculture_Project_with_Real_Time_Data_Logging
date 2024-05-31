@@ -16,6 +16,10 @@
 // Define the type of DHT sensor
 #define DHTTYPE DHT11
 
+// Relay pins for motor control
+const int relayPin1 = 32; // GPIO32
+const int relayPin2 = 25; // GPIO25
+
 // Initialize DHT sensor
 DHT dht(DHTPIN, DHTTYPE);
 
@@ -71,6 +75,12 @@ void setup() {
 
     pinMode(LED_BUILTIN, OUTPUT);
 
+    // Initialize relay pins
+    pinMode(relayPin1, OUTPUT);
+    pinMode(relayPin2, OUTPUT);
+    digitalWrite(relayPin1, LOW);
+    digitalWrite(relayPin2, LOW);
+
     lcd.init();
     lcd.backlight();
     
@@ -107,6 +117,9 @@ void loop() {
         updateDisplay = false;
         portEXIT_CRITICAL(&timerMux);
 
+        // Control the motor based on soil moisture
+        controlMotor(currentMoistureValue);
+
         // Display the new sensor values on the LCD
         displayData(currentMoistureValue, "Soil Moisture:", "%");
         delay(3000);
@@ -122,7 +135,7 @@ void loop() {
 
         // Update ThingSpeak with the new sensor values if connected to WiFi
         if (WiFi.status() == WL_CONNECTED) {
-            upload(currentMoistureValue, currentRainValue,humidity,temperature);
+            upload(currentMoistureValue, currentRainValue, humidity, temperature);
         }
     }
 }
@@ -154,8 +167,7 @@ int rainSensor() {
     return map(sensorValue, 0, 4095, 100, 0);
 }
 
-
-void upload(int moistureValue, int rainValue,float humidity,float temperature) {
+void upload(int moistureValue, int rainValue, float humidity, float temperature) {
     ThingSpeak.setField(Field_Number_1, moistureValue);
     ThingSpeak.setField(Field_Number_2, rainValue);
     ThingSpeak.setField(Field_Number_3, humidity);
@@ -221,4 +233,23 @@ void dht_11() {
     Serial.print("Temperature: ");
     Serial.print(temperature);
     Serial.println(" °C");
+}
+
+void controlMotor(int moistureValue) {
+    if (moistureValue < 25) {
+        // Turn motor on
+        digitalWrite(relayPin1, HIGH);
+        digitalWrite(relayPin2, LOW);
+        Serial.println("Motor ON");
+        displayData(1, "Motor ON:", ".");
+        delay(3000);
+
+    } else if (moistureValue > 60) {
+        // Turn motor off
+        digitalWrite(relayPin1, LOW);
+        digitalWrite(relayPin2, LOW);
+        Serial.println("Motor OFF");
+        displayData(0, "Motor OFF:", ".");
+        delay(3000);
+    }
 }
