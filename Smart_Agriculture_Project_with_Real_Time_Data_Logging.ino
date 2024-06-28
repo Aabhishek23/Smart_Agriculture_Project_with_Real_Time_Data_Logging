@@ -1,3 +1,41 @@
+/*
+ * Smart Agricultural Project with Cloud Technology
+ * 
+ * This project leverages the ESP32 board to modernize farming through real-time monitoring and control.
+ * Features include humidity and temperature sensing, soil moisture and rain detection, real-time data 
+ * acquisition, and cloud storage. The system allows remote data monitoring and control, automated motor 
+ * control via relays, and operates as a low-power device with solar charging. This integration of IoT 
+ * and cloud technology ensures efficient, sustainable, and productive farming.
+ * 
+ * Features:
+ * 1. Humidity and Temperature Sensing
+ *    - Monitors ambient conditions
+ * 2. Moisture Sensing
+ *    - Measures soil moisture levels
+ * 3. Rain Sensing
+ *    - Detects rainfall
+ * 4. Real-Time Data Acquisition and Logging
+ *    - Collects and logs data continuously
+ * 5. Data Cloud Storage and Monitoring
+ *    - Stores data on a cloud platform
+ * 6. Remote Monitoring and Control
+ *    - Accessible from any location
+ * 7. Automatic Motor Control Using Relay
+ *    - Automates irrigation
+ * 8. Low Power Device
+ *    - Energy-efficient design
+ * 9. Solar Charging
+ *    - Utilizes solar panels for power
+ * 
+ * Key Benefits:
+ * - Increased crop yield
+ * - Water conservation
+ * - Remote accessibility
+ * - Sustainability through low power and solar energy
+ * 
+ * © 2024 Abhishek Parochi. All rights reserved.
+ */
+
 #include <LiquidCrystal_I2C.h>
 #include "ThingSpeak.h"
 #include <WiFi.h>
@@ -249,7 +287,4 @@ void controlMotor(int moistureValue) {
         digitalWrite(relayPin1, LOW);
         digitalWrite(relayPin2, LOW);
         Serial.println("Motor OFF");
-        displayData(0, "Motor OFF:", ".");
-        delay(3000);
-    }
-}
+        display
