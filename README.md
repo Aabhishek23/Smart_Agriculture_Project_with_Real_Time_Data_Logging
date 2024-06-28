@@ -27,3 +27,6 @@ Key Benefits:
 - Water conservation
 - Remote accessibility
 - Sustainability through low power and solar energy
+
+# Copyright
+© 2024 Abhishek Parochi. All rights reserved.
